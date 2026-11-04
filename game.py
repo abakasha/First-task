@@ -1,6 +1,16 @@
 import random
 from time import sleep
 
+import dungeon
+
+try:
+    from colorama import Fore, Style, init
+    init()
+    COLOR = True
+except ImportError:
+    COLOR = False
+
+
 # ================================================
 # ИГРА «ПЕЩЕРА ГОБЛИНОВ»
 # Автор: Иван Абакумов
@@ -60,71 +70,6 @@ MENU = [
     "11 - выпить зелье (drink)",
     "0 - выйти из пещеры (exit)",
 ]
-
-
-def hero_hit(strike_n):
-    """Урон героя в удар номер strike_n: каждый третий — критический."""
-    if strike_n % 3 == 0:
-        return crit_damage
-    return damage
-
-
-def fight(enemy, hero_health, bonus=0):
-    """Бой с enemy до гибели одного из двоих.
-
-    Карточка врага берётся из enemy_stats по имени:
-    нужны ключи hp, damage, loot.
-    bonus — надбавка к урону героя, по умолчанию 0.
-    Печатает строки раундов.
-    Возвращает (rounds, won, hero_health, loot).
-    """
-    stats = enemy_stats[enemy]
-    enemy_hp = float(stats["hp"])
-    round_n = 0
-    rounds = []
-
-    print(f"Вы спускаетесь по ступеням. Из темноты выходит {enemy}!")
-
-    while enemy_hp > 0 and hero_health > 0:
-        round_n += 1
-        hero_hit_now = hero_hit(round_n) + bonus
-
-        if round_n % 3 == 0:
-            crit_mark = " - критический!"
-        else:
-            crit_mark = ""
-
-        enemy_hp -= hero_hit_now
-        print(f"Раунд {round_n}: вы наносите {hero_hit_now:.1f} урона{crit_mark}. Здоровье {enemy}: {max(enemy_hp, 0):.1f}.", end=" ")
-        sleep(0.5)
-
-        if enemy_hp <= 0:
-            enemy_hit = 0
-            print(f"{enemy} падает!")
-        else:
-            enemy_hit = stats["damage"]
-            hero_health -= enemy_hit
-            print(f"{enemy} бьёт в ответ на {enemy_hit}.")
-            sleep(0.5)
-
-        rounds.append([round_n, hero_hit_now, enemy_hit])
-
-    won = enemy_hp <= 0
-    loot = stats["loot"] if won else 0
-    return rounds, won, hero_health, loot
-
-
-def buy(price, gold, quantity=1):
-    """Покупает quantity штук товара ценой price за золото gold.
-
-    quantity по умолчанию 1.
-    Возвращает (gold_left, ok).
-    Ничего не печатает.
-    """
-    cost = price * quantity
-    if gold >= cost:
-        return gold - cost, True
-    return gold, False
 
 
 def print_leaderboard(log):
@@ -258,9 +203,9 @@ try:
                 crit_count = 0
 
                 for i in range(1, strikes_train + 1):
-                    hit_damage = hero_hit(i)
+                    hit_damage, is_crit = dungeon.hero_hit(i, damage, crit_damage)
 
-                    if i % 3 == 0:
+                    if is_crit:
                         mark = " — критический!"
                         crit_count += 1
                     else:
@@ -281,19 +226,25 @@ try:
                     print("Вы спускаетесь глубже, но пещера пуста - здесь больше некому драться.")
                 else:
                     enemy = random.choice(enemies)
-                    rounds, won, health, loot = fight(enemy, health, bonus=ability_bonus)
+                    rounds, won, health, loot = dungeon.fight(
+                        enemy, health, ability_bonus, damage, crit_damage
+                    )
                     log.extend(rounds)
 
                     if won:
                         gold_total += loot
                         enemies.remove(enemy)
-                        print(f"{enemy} побеждён! В пещере осталось врагов: {len(enemies)}. Трофеи: {loot} золота.")
+                        msg = f"{enemy} побеждён! В пещере осталось врагов: {len(enemies)}. Трофеи: {loot} золота."
+                        if COLOR:
+                            print(Fore.YELLOW + msg + Style.RESET_ALL)
+                        else:
+                            print(msg)
                     print(f"Бой занял раундов: {len(rounds)}.")
             case "leaders":
                 print_leaderboard(log)
             case "shop":
                 print("Магазин:")
-                for name, price in prices.items():
+                for name, price in dungeon.prices.items():
                     print(f"{name}: {price} золота")
             case "backpack":
                 if not inventory:
@@ -313,16 +264,16 @@ try:
                 if item == "":
                     print("Купить что? Введи: buy <товар>.")
                     continue
-                if item not in prices:
+                if item not in dungeon.prices:
                     print("Такого товара в магазине нет.")
                     continue
 
-                gold_total, ok = buy(prices[item], gold_total, quantity=qty)
+                gold_total, ok = dungeon.buy(dungeon.prices[item], gold_total, quantity=qty)
                 if ok:
                     inventory[item] = inventory.get(item, 0) + qty
-                    print(f"Куплено: {qty} {item} за {prices[item] * qty} золота. Осталось золота: {gold_total}.")
+                    print(f"Куплено: {qty} {item} за {dungeon.prices[item] * qty} золота. Осталось золота: {gold_total}.")
                 else:
-                    print(f"Не хватает золота: нужно {prices[item] * qty}, есть {gold_total}.")
+                    print(f"Не хватает золота: нужно {dungeon.prices[item] * qty}, есть {gold_total}.")
             case "drink":
                 item = " ".join(words[1:]) or "potion"
                 if inventory.get(item, 0) == 0:
@@ -352,6 +303,7 @@ try:
             outcome = "гибель"
             running = False
 
+        state = f"Здоровье: {health}   Запас сил: {stamina}   Врагов осталось: {len(enemies)}   Золото: {gold_total}   Лут: {len(found_loot)}"
         print()
         print(f"Здоровье: {health}   Запас сил: {stamina}   Врагов осталось: {len(enemies)}   Золото: {gold_total}")
 
