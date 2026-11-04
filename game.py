@@ -15,6 +15,10 @@ except ImportError:
 # ИГРА «ПЕЩЕРА ГОБЛИНОВ»
 # Автор: Иван Абакумов
 # Дата: сентябрь 2026
+#
+# bonus прибавляется к обычному удару ДО удвоения критом.
+# Потолок здоровья/сил — значения на старте забега.
+# Команды: номера (0-11) и слова (go, buy potion, drink и т.д.).
 # ================================================
 
 title = "ПЕЩЕРА ГОБЛИНОВ"
@@ -28,27 +32,15 @@ stamina_train = 3
 strikes_train = 6
 
 
-# --- Карта и навигация ---------------------------
-MAP = [
-    ["#", "#", "#", "#", "#"],
-    ["#", ".", ".", "#", "#"],
-    ["#", ".", "#", ".", "#"],
-    ["#", ".", "#", ".", "#"],
-    ["#", "#", "S", ".", "#"],
-]
+prices = {"potion": 10, "torch_oil": 15, "war_elixir": 40}
 
-DIRECTIONS = {
-    "north": (-1, 0),
-    "south": (1, 0),
-    "west":  (0, -1),
-    "east":  (0, 1),
+enemy_stats = {
+    "гоблин": {"hp": 30, "damage": 4, "loot": 15},
+    "скелет": {"hp": 45, "damage": 6, "loot": 25},
+    "паук": {"hp": 20, "damage": 3, "loot": 10},
+    "кобольт": {"hp": 35, "damage": 5, "loot": 20},
 }
 
-LOOT = {
-    (1, 1): "старая монета",
-    (2, 3): "пыльное зелье",
-    (3, 3): "камень стража",
-}
 
 num_to_verb = {
     "1": "look", "2": "go", "3": "rest", "4": "listen",
@@ -58,10 +50,9 @@ num_to_verb = {
 }
 
 commands = [
-    "look", "go", "go <направление>", "rest", "listen", "torch",
-    "train", "descend", "leaders", "shop", "backpack",
-    "drink potion", "buy <item> [count]", "map", "scout",
-    "help", "exit",
+    "look", "go", "rest", "listen", "torch", "train", "descend",
+    "leaders", "shop", "backpack", "drink potion",
+    "buy <item> [count]", "help", "exit",
 ]
 
 MENU = [
@@ -77,7 +68,6 @@ MENU = [
     "9 - магазин (shop)",
     "10 - рюкзак (backpack)",
     "11 - выпить зелье (drink)",
-    "   карта (map) / разведка (scout) / шаг (go north)",
     "0 - выйти из пещеры (exit)",
 ]
 
@@ -106,20 +96,6 @@ def print_run_summary(log):
         print(f"Урон: {total:.1f} за {rounds} раундов, средний: {total / rounds:.1f}.")
     else:
         print("Боёв в этом забеге не было.")
-
-
-def scout(r, c, seen):
-    """Рекурсивно считает доступные комнаты из клетки (r, c)."""
-    if (r, c) in seen or MAP[r][c] == "#":
-        return 0
-
-    seen.add((r, c))
-    total = 1
-
-    for dr, dc in DIRECTIONS.values():
-        total += scout(r + dr, c + dc, seen)
-
-    return total
 
 
 print(frame)
@@ -181,10 +157,6 @@ gold_total = 0
 ability_bonus = 0
 inventory = {}
 
-hero_r, hero_c = 4, 2
-visited = {(4, 2)}
-found_loot = set()
-
 try:
     while running:
         print("\n".join(MENU))
@@ -207,38 +179,20 @@ try:
             case "look":
                 print("Вы осмотрелись. Стены пещеры покрыты странными знаками.")
             case "go":
-                if len(words) > 1 and words[1] in DIRECTIONS:
-                    dr, dc = DIRECTIONS[words[1]]
-                    nr, nc = hero_r + dr, hero_c + dc
-
-                    if 0 <= nr < len(MAP) and 0 <= nc < len(MAP[nr]) and MAP[nr][nc] != "#":
-                        hero_r, hero_c = nr, nc
-                        visited.add((hero_r, hero_c))
-                        print(f"Вы идёте {words[1]}. Комната ({hero_r}, {hero_c}).")
-
-                        if (hero_r, hero_c) in LOOT:
-                            item = LOOT[(hero_r, hero_c)]
-                            if item not in found_loot:
-                                found_loot.add(item)
-                                print(f"Найдено: {item}! Уникальный лут: {len(found_loot)}.")
-                    else:
-                        print(f"Нельзя идти {words[1]}: стена или край.")
+                if stamina >= stamina_move:
+                    stamina -= stamina_move
+                    print("Вы осторожно идёте вперёд. Под ногами хрустят мелкие камни.")
                 else:
-                    if stamina >= stamina_move:
-                        stamina -= stamina_move
-                        print("Вы осторожно идёте вперёд. Под ногами хрустят мелкие камни.")
-                    else:
-                        health -= stamina_move - stamina
-                        stamina = 0
-                        print("Сил больше нет — вы идёте на одном упорстве.")
+                    health -= stamina_move - stamina
+                    stamina = 0
+                    print("Сил больше нет — вы идёте на одном упорстве.")
             case "rest":
                 stamina = min(stamina + stamina_rest, max_stamina)
                 print("Вы присели у стены и перевели дух.")
             case "listen":
                 print("Вы замерли и прислушались. Где-то в глубине капает вода.")
             case "torch":
-                inventory["torch"] = inventory.get("torch", 0) + 1
-                print("Вы обыскали мешок и нашли старый факел. Он теперь в рюкзаке.")
+                print("Вы обыскали мешок и нашли старый факел.")
             case "train":
                 print("Вы подходите к каменной глыбе, стоящей у стены.")
                 print("На ней видны следы старых ударов — здесь тренировались до вас.")
@@ -330,20 +284,6 @@ try:
                     if inventory[item] == 0:
                         del inventory[item]
                     print(f"Вы выпили {item}. Здоровье: {health}. Осталось: {inventory.get(item, 0)}.")
-            case "map":
-                print("Карта:")
-                for i in range(len(MAP)):
-                    cells = []
-                    for j in range(len(MAP[i])):
-                        if (i, j) == (hero_r, hero_c):
-                            cells.append("@")
-                        else:
-                            cells.append(MAP[i][j])
-                    print(" ".join(cells))
-            case "scout":
-                seen = set()
-                count = scout(hero_r, hero_c, seen)
-                print(f"Разведка: {count} доступных комнат.")
             case "help":
                 print("Команды: " + ", ".join(commands) + ".")
                 print("Номера 0-11 работают как раньше.")
@@ -365,10 +305,7 @@ try:
 
         state = f"Здоровье: {health}   Запас сил: {stamina}   Врагов осталось: {len(enemies)}   Золото: {gold_total}   Лут: {len(found_loot)}"
         print()
-        if COLOR:
-            print(Fore.GREEN + state + Style.RESET_ALL)
-        else:
-            print(state)
+        print(f"Здоровье: {health}   Запас сил: {stamina}   Врагов осталось: {len(enemies)}   Золото: {gold_total}")
 
 except KeyboardInterrupt:
     print()
@@ -392,10 +329,5 @@ finally:
             print(f"  {name}: {qty} шт.")
     else:
         print("В рюкзаке ничего не осталось.")
-
-    if found_loot:
-        print("Найденный уникальный лут: " + ", ".join(found_loot) + ".")
-    else:
-        print("Уникального лута не найдено.")
 
     print(frame)
