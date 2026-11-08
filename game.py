@@ -19,17 +19,10 @@ except ImportError:
 # Дата: сентябрь 2026
 # ================================================
 
+VERSION = "1.0"
 title = "ПЕЩЕРА ГОБЛИНОВ"
 frame = "=" * 21
 
-base_attack = 10
-stamina_rest = 3
-stamina_move = 2
-stamina_train = 3
-strikes_train = 6
-
-
-# --- Карта и навигация ---------------------------
 MAP = [
     ["#", "#", "#", "#", "#"],
     ["#", ".", ".", "#", "#"],
@@ -39,10 +32,8 @@ MAP = [
 ]
 
 DIRECTIONS = {
-    "north": (-1, 0),
-    "south": (1, 0),
-    "west":  (0, -1),
-    "east":  (0, 1),
+    "north": (-1, 0), "south": (1, 0),
+    "west":  (0, -1), "east":  (0, 1),
 }
 
 LOOT = {
@@ -86,13 +77,7 @@ MENU = [
 def write_save():
     """Сохраняет состояние забега в save.json."""
     save = {
-        "hero": hero_name,
-        "health": health,
-        "stamina": stamina,
-        "max_health": max_health,
-        "max_stamina": max_stamina,
-        "damage": damage,
-        "crit_damage": crit_damage,
+        "hero": hero.to_dict(),
         "gold": gold_total,
         "actions": actions,
         "ability_bonus": ability_bonus,
@@ -108,7 +93,6 @@ def write_save():
 
 
 def print_leaderboard(log):
-    """Печатает таблицу лидеров по журналу log. Возвращает None."""
     if not log:
         print("Вы ещё не сражались — таблица лидеров пуста.")
         return
@@ -123,10 +107,8 @@ def print_leaderboard(log):
 
 
 def print_run_summary(log):
-    """Печатает итог забега. Возвращает None."""
     total = sum(r[1] for r in log)
     rounds = len(log)
-
     if rounds > 0:
         print(f"Урон: {total:.1f} за {rounds} раундов, средний: {total / rounds:.1f}.")
     else:
@@ -134,21 +116,30 @@ def print_run_summary(log):
 
 
 def scout(r, c, seen):
-    """Рекурсивно считает доступные комнаты из клетки (r, c)."""
     if (r, c) in seen or MAP[r][c] == "#":
         return 0
-
     seen.add((r, c))
     total = 1
-
     for dr, dc in DIRECTIONS.values():
         total += scout(r + dr, c + dc, seen)
-
     return total
+
+
+def parse_command(line):
+    """Возвращает (verb, words) из строки ввода."""
+    cmd = line.strip().lower()
+    words = cmd.split()
+    if not words:
+        return "", []
+    verb = words[0]
+    if cmd in num_to_verb:
+        verb = num_to_verb[cmd]
+    return verb, words
 
 
 print(frame)
 print("   " + title + "   ")
+print(f"   v{VERSION}")
 print(frame)
 print()
 
@@ -176,37 +167,24 @@ if loaded is None:
 
     print("Настройка героя.")
     print("Здоровье, сила, ловкость, интеллект — по одному числу в строке:")
-
     while True:
         try:
-            health = int(input())
-            strength = int(input())
-            agility = int(input())
-            intelligence = int(input())
-            if health <= 0:
-                raise ValueError(f"Здоровье должно быть положительным, а введено {health}")
-            if strength <= 0 or agility <= 0 or intelligence <= 0:
-                raise ValueError("Характеристики не могут быть отрицательными")
+            h = int(input())
+            s = int(input())
+            a = int(input())
+            i = int(input())
+            if h <= 0: raise ValueError(f"Здоровье должно быть положительным, а введено {h}")
+            if s <= 0 or a <= 0 or i <= 0: raise ValueError("Характеристики не могут быть отрицательными")
             break
         except ValueError as e:
             print(f"{e}. Введите все четыре снова:")
 
-    damage = base_attack + strength * 1.5
-    crit_damage = damage * 2
-    stamina = agility * 2
-
-    max_health = health
-    max_stamina = stamina
+    hero = dungeon.Hero(hero_name, h, s, a, i)
+    max_health = hero.health
+    max_stamina = hero.stamina
 
     print("Характеристики героя:")
-    print(f"Здоровье:    {health:4d}")
-    print(f"Сила:        {strength:4d}")
-    print(f"Ловкость:    {agility:4d}")
-    print(f"Интеллект:   {intelligence:4d}")
-    print()
-    print(f"Урон героя:         {damage:.1f}")
-    print(f"Критический урон:   {crit_damage:.1f}")
-    print(f"Запас сил:          {stamina}")
+    print(hero)
     print()
 
     actions = 0
@@ -220,13 +198,10 @@ if loaded is None:
     found_loot = set()
 
 else:
-    hero_name = loaded["hero"]
-    health = loaded["health"]
-    stamina = loaded["stamina"]
-    max_health = loaded["max_health"]
-    max_stamina = loaded["max_stamina"]
-    damage = loaded["damage"]
-    crit_damage = loaded["crit_damage"]
+    hero = dungeon.Hero.from_dict(loaded["hero"])
+    max_health = hero.health
+    max_stamina = hero.stamina
+    
     gold_total = loaded["gold"]
     actions = loaded["actions"]
     ability_bonus = loaded["ability_bonus"]
@@ -236,8 +211,7 @@ else:
     hero_r, hero_c = loaded["position"]
     visited = {tuple(p) for p in loaded["visited"]}
     found_loot = set(loaded["loot"])
-    
-    print(f"Забег продолжен: здоровье {health}, золото {gold_total}, врагов {len(enemies)}.")
+    print(f"Забег продолжен: {hero}")
     print()
 
 
@@ -250,17 +224,12 @@ try:
         print()
 
         line = input()
-        cmd = line.strip().lower()
-        while cmd == "":
+        verb, words = parse_command(line)
+
+        while verb == "":
             print("Пустая команда. Введи команду или номер.")
             line = input()
-            cmd = line.strip().lower()
-
-        words = cmd.split()
-        verb = words[0] if words else ""
-
-        if cmd in num_to_verb:
-            verb = num_to_verb[cmd]
+            verb, words = parse_command(line)
 
         match verb:
             case "look":
@@ -283,15 +252,12 @@ try:
                     else:
                         print(f"Нельзя идти {words[1]}: стена или край.")
                 else:
-                    if stamina >= stamina_move:
-                        stamina -= stamina_move
-                        print("Вы осторожно идёте вперёд. Под ногами хрустят мелкие камни.")
-                    else:
-                        health -= stamina_move - stamina
-                        stamina = 0
+                    if hero.spend_stamina(2):
                         print("Сил больше нет — вы идёте на одном упорстве.")
+                    else:
+                        print("Вы осторожно идёте вперёд. Под ногами хрустят мелкие камни.")
             case "rest":
-                stamina = min(stamina + stamina_rest, max_stamina)
+                hero.stamina = min(hero.stamina + 3, max_stamina)
                 print("Вы присели у стены и перевели дух.")
             case "listen":
                 print("Вы замерли и прислушались. Где-то в глубине капает вода.")
@@ -302,13 +268,13 @@ try:
                 print("Вы подходите к каменной глыбе, стоящей у стены.")
                 print("На ней видны следы старых ударов — здесь тренировались до вас.")
                 print()
-                print(f"Наносите {strikes_train} ударов.")
+                print(f"Наносите 6 ударов.")
 
                 total_damage = 0
                 crit_count = 0
 
-                for i in range(1, strikes_train + 1):
-                    hit_damage, is_crit = dungeon.hero_hit(i, damage, crit_damage)
+                for i in range(1, 7):
+                    hit_damage, is_crit = hero.strike(i)
 
                     if is_crit:
                         mark = " — критический!"
@@ -320,26 +286,25 @@ try:
                     sleep(0.5)
                     total_damage += hit_damage
 
-                stamina -= stamina_train
+                hero.stamina -= 3
 
                 print()
-                print(f"Итог: {strikes_train} ударов, критических: {crit_count}.")
+                print(f"Итог: 6 ударов, критических: {crit_count}.")
                 print(f"Общий урон: {total_damage:.1f}")
-                print(f"Средний урон: {total_damage / strikes_train:.1f}")
+                print(f"Средний урон: {total_damage / 6:.1f}")
             case "descend":
                 if not enemies:
                     print("Вы спускаетесь глубже, но пещера пуста - здесь больше некому драться.")
                 else:
-                    enemy = random.choice(enemies)
-                    rounds, won, health, loot = dungeon.fight(
-                        enemy, health, ability_bonus, damage, crit_damage
-                    )
+                    enemy_name = random.choice(enemies)
+                    foe = dungeon.Enemy(enemy_name, dungeon.enemy_stats[enemy_name])
+                    rounds, won, loot = dungeon.fight(foe, hero, ability_bonus)
                     log.extend(rounds)
 
                     if won:
                         gold_total += loot
-                        enemies.remove(enemy)
-                        msg = f"{enemy} побеждён! В пещере осталось врагов: {len(enemies)}. Трофеи: {loot} золота."
+                        enemies.remove(enemy_name)
+                        msg = f"{enemy_name} побеждён! В пещере осталось врагов: {len(enemies)}. Трофеи: {loot} золота."
                         if COLOR:
                             print(Fore.YELLOW + msg + Style.RESET_ALL)
                         else:
@@ -384,11 +349,11 @@ try:
                 if inventory.get(item, 0) == 0:
                     print(f"В рюкзаке нет: {item}.")
                 else:
-                    health = min(health + 10, max_health)
+                    hero.heal(10, max_health)
                     inventory[item] -= 1
                     if inventory[item] == 0:
                         del inventory[item]
-                    print(f"Вы выпили {item}. Здоровье: {health}. Осталось: {inventory.get(item, 0)}.")
+                    print(f"Вы выпили {item}. Здоровье: {hero.health}. Осталось: {inventory.get(item, 0)}.")
             case "map":
                 print("Карта:")
                 for i in range(len(MAP)):
@@ -426,14 +391,14 @@ try:
         if running:
             actions += 1
 
-        if health <= 0:
-            print(f"{hero_name} падает без сил. Пещера забирает ещё одного искателя.")
+        if hero.health <= 0:
+            print(f"{hero.name} падает без сил. Пещера забирает ещё одного искателя.")
             if os.path.exists("save.json"):
                 os.remove("save.json")
             outcome = "гибель"
             running = False
 
-        state = f"Здоровье: {health}   Запас сил: {stamina}   Врагов осталось: {len(enemies)}   Золото: {gold_total}   Лут: {len(found_loot)}"
+        state = f"Здоровье: {hero.health}   Запас сил: {hero.stamina}   Врагов осталось: {len(enemies)}   Золото: {gold_total}   Лут: {len(found_loot)}"
         print()
         if COLOR:
             print(Fore.GREEN + state + Style.RESET_ALL)
@@ -449,11 +414,11 @@ finally:
     print()
     print(frame)
     if outcome == "гибель":
-        print(f"Ты не дошёл, {hero_name}. Действий совершено: {actions}.")
+        print(f"Ты не дошёл, {hero.name}. Действий совершено: {actions}.")
     elif outcome == "выход":
-        print(f"Забег окончен, {hero_name}. Действий совершено: {actions}.")
+        print(f"Забег окончен, {hero.name}. Действий совершено: {actions}.")
     else:
-        print(f"Сеанс прерван, {hero_name}. Действий совершено: {actions}.")
+        print(f"Сеанс прерван, {hero.name}. Действий совершено: {actions}.")
 
     print_run_summary(log)
 

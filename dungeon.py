@@ -1,4 +1,4 @@
-"""Правила игры «Пещера гоблинов»: бой, покупки, цены, враги."""
+"""Правила игры «Пещера гоблинов»: бой, покупки, цены, герой, враги."""
 
 import random
 from time import sleep
@@ -14,31 +14,89 @@ enemy_stats = {
 }
 
 
-def hero_hit(strike_n, damage, crit_damage):
-    """Урон героя в удар strike_n; возвращает (hit, crit)."""
-    if strike_n % 3 == 0:
-        return crit_damage, True
-    return damage, False
+class Hero:
+    """Герой со своими характеристиками и правилами."""
+    
+    def __init__(self, name, health, strength, agility, endurance):
+        self.name = name
+        self.health = health
+        self.strength = strength
+        self.agility = agility
+        self.endurance = endurance
+        
+        # Вычисляемые характеристики
+        self.damage = 10 + strength * 1.5
+        self.crit_damage = self.damage * 2
+        self.stamina = agility * 2
+
+    def __str__(self):
+        return (f"{self.name}: здоровье {self.health}, "
+                f"урон {self.damage:.1f}, крит {self.crit_damage:.1f}, "
+                f"силы {self.stamina}")
+
+    def strike(self, n):
+        """Удар номер n: каждый третий — критический."""
+        if n % 3 == 0:
+            return self.crit_damage, True
+        return self.damage, False
+
+    def spend_stamina(self, cost):
+        """Тратит силы. Если не хватает — списывает из здоровья. Возвращает True, если перешёл в упорство."""
+        if self.stamina >= cost:
+            self.stamina -= cost
+            return False
+        else:
+            self.health -= cost - self.stamina
+            self.stamina = 0
+            return True
+
+    def heal(self, amount, cap):
+        """Лечит, не превышая потолок cap."""
+        self.health = min(self.health + amount, cap)
+
+    def to_dict(self):
+        """Словарь для сохранения в JSON."""
+        return {
+            "name": self.name,
+            "health": self.health,
+            "stamina": self.stamina,
+            "strength": self.strength,
+            "agility": self.agility,
+            "endurance": self.endurance,
+        }
+
+    @staticmethod
+    def from_dict(data):
+        """Создаёт героя из словаря сохранения."""
+        hero = Hero(data["name"], data["health"], data["strength"], data["agility"], data["endurance"])
+        hero.stamina = data["stamina"]
+        return hero
 
 
-def fight(enemy, hero_health, bonus, damage, crit_damage):
+class Enemy:
+    """Враг на один бой."""
+    
+    def __init__(self, name, stats):
+        self.name = name
+        self.hp = float(stats["hp"])
+        self.damage = stats["damage"]
+        self.loot = stats["loot"]
+
+
+def fight(enemy, hero, bonus=0):
     """Бой с enemy до гибели одного из двоих.
-
-    Карточка врага берётся из enemy_stats.
-    bonus — надбавка к урону героя.
+    
     Печатает строки раундов.
-    Возвращает (rounds, won, hero_health, loot).
+    Возвращает (rounds, won, loot).
     """
-    stats = enemy_stats[enemy]
-    enemy_hp = float(stats["hp"])
     round_n = 0
     rounds = []
 
-    print(f"Вы спускаетесь по ступеням. Из темноты выходит {enemy}!")
+    print(f"Вы спускаетесь по ступеням. Из темноты выходит {enemy.name}!")
 
-    while enemy_hp > 0 and hero_health > 0:
+    while enemy.hp > 0 and hero.health > 0:
         round_n += 1
-        hit, crit = hero_hit(round_n, damage, crit_damage)
+        hit, crit = hero.strike(round_n)
         hero_hit_now = hit + bonus
 
         if crit:
@@ -46,33 +104,28 @@ def fight(enemy, hero_health, bonus, damage, crit_damage):
         else:
             crit_mark = ""
 
-        enemy_hp -= hero_hit_now
-        print(f"Раунд {round_n}: вы наносите {hero_hit_now:.1f} урона{crit_mark}. Здоровье {enemy}: {max(enemy_hp, 0):.1f}.", end=" ")
+        enemy.hp -= hero_hit_now
+        print(f"Раунд {round_n}: вы наносите {hero_hit_now:.1f} урона{crit_mark}. Здоровье {enemy.name}: {max(enemy.hp, 0):.1f}.", end=" ")
         sleep(0.5)
 
-        if enemy_hp <= 0:
+        if enemy.hp <= 0:
             enemy_hit = 0
-            print(f"{enemy} падает!")
+            print(f"{enemy.name} падает!")
         else:
-            enemy_hit = stats["damage"]
-            hero_health -= enemy_hit
-            print(f"{enemy} бьёт в ответ на {enemy_hit}.")
+            enemy_hit = enemy.damage
+            hero.health -= enemy_hit
+            print(f"{enemy.name} бьёт в ответ на {enemy_hit}.")
             sleep(0.5)
 
         rounds.append([round_n, hero_hit_now, enemy_hit])
 
-    won = enemy_hp <= 0
-    loot = stats["loot"] if won else 0
-    return rounds, won, hero_health, loot
+    won = enemy.hp <= 0
+    loot = enemy.loot if won else 0
+    return rounds, won, loot
 
 
 def buy(price, gold, quantity=1):
-    """Покупает quantity штук товара ценой price за золото gold.
-
-    quantity по умолчанию 1.
-    Возвращает (gold_left, ok).
-    Ничего не печатает.
-    """
+    """Покупает quantity штук товара ценой price за золото gold."""
     cost = price * quantity
     if gold >= cost:
         return gold - cost, True
@@ -80,5 +133,7 @@ def buy(price, gold, quantity=1):
 
 
 if __name__ == "__main__":
-    rounds, won, hp, loot = fight("скелет", 100, 0, 20.5, 41.0)
-    print(f"self-test: {len(rounds)} rounds, won={won}, loot={loot}")
+    test_hero = Hero("Тест", 100, 7, 5, 4)
+    test_enemy = Enemy("скелет", enemy_stats["скелет"])
+    rounds, won, loot = fight(test_enemy, test_hero, 0)
+    print(f"self-test: {len(rounds)} rounds, won={won}, loot={loot}, hero hp={test_hero.health}")
